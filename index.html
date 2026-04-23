@@ -1,0 +1,1427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NEXUS · Solana Trading Bot</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg0: #03050a;
+    --bg1: #070d18;
+    --bg2: #0d1a2e;
+    --bg3: #112040;
+    --sol: #9945FF;
+    --sol2: #14F195;
+    --amber: #f59e0b;
+    --red: #ff3d5a;
+    --green: #14F195;
+    --text: #c8daf0;
+    --muted: #4a6080;
+    --border: #1a3050;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Share Tech Mono', monospace;
+    background: var(--bg0);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+  }
+
+  /* Grid bg */
+  body::after {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image:
+      linear-gradient(rgba(153,69,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(153,69,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .app { position: relative; z-index: 1; max-width: 1280px; margin: 0 auto; padding: 16px; }
+
+  /* HEADER */
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 20px; margin-bottom: 14px;
+    background: linear-gradient(135deg, var(--bg1), var(--bg2));
+    border: 1px solid var(--border);
+    border-top: 2px solid var(--sol);
+    border-radius: 4px;
+    position: relative; overflow: hidden;
+  }
+  .header::before {
+    content: '';
+    position: absolute; top: 0; left: -100%; width: 60%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(153,69,255,0.06), transparent);
+    animation: sweep 4s linear infinite;
+  }
+  @keyframes sweep { to { left: 200%; } }
+
+  .logo { display: flex; align-items: center; gap: 12px; }
+  .logo-icon {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--sol), var(--sol2));
+    border-radius: 6px; display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-family: 'Rajdhani', sans-serif; font-weight: 700; color: #fff;
+    box-shadow: 0 0 16px rgba(153,69,255,0.5);
+  }
+  .logo-text { font-family: 'Rajdhani', sans-serif; font-size: 22px; font-weight: 700; letter-spacing: 4px; color: #fff; }
+  .logo-sub { font-size: 10px; color: var(--muted); letter-spacing: 2px; margin-top: 2px; }
+
+  .header-right { display: flex; align-items: center; gap: 10px; }
+
+  .wallet-btn {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 16px;
+    background: linear-gradient(135deg, rgba(153,69,255,0.15), rgba(20,241,149,0.08));
+    border: 1px solid rgba(153,69,255,0.4);
+    border-radius: 4px; cursor: pointer; color: var(--text);
+    font-family: 'Share Tech Mono', monospace; font-size: 12px;
+    transition: all 0.2s; position: relative; overflow: hidden;
+  }
+  .wallet-btn:hover { border-color: var(--sol); box-shadow: 0 0 12px rgba(153,69,255,0.3); }
+  .wallet-btn.connected { border-color: var(--green); background: rgba(20,241,149,0.08); }
+  .wallet-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .wallet-dot.on { background: var(--green); box-shadow: 0 0 6px var(--green); animation: blink 2s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  .bot-toggle {
+    padding: 8px 20px;
+    font-family: 'Share Tech Mono', monospace; font-size: 12px; letter-spacing: 1px;
+    border-radius: 4px; cursor: pointer; border: none; font-weight: 700;
+    transition: all 0.2s;
+  }
+  .bot-toggle.start {
+    background: linear-gradient(135deg, rgba(20,241,149,0.2), rgba(20,241,149,0.1));
+    border: 1px solid var(--green); color: var(--green);
+  }
+  .bot-toggle.stop {
+    background: linear-gradient(135deg, rgba(255,61,90,0.2), rgba(255,61,90,0.1));
+    border: 1px solid var(--red); color: var(--red);
+  }
+  .bot-toggle:hover { filter: brightness(1.3); transform: translateY(-1px); }
+
+  /* METRICS */
+  .metrics { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 14px; }
+  .metric {
+    background: var(--bg1); border: 1px solid var(--border); border-radius: 4px;
+    padding: 10px 12px; position: relative; overflow: hidden;
+  }
+  .metric::after {
+    content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--sol), var(--sol2));
+    transform: scaleX(0); transform-origin: left;
+    transition: transform 0.5s;
+  }
+  .metric.updated::after { transform: scaleX(1); }
+  .metric-label { font-size: 9px; color: var(--muted); letter-spacing: 2px; margin-bottom: 5px; }
+  .metric-val { font-family: 'Rajdhani', sans-serif; font-size: 18px; font-weight: 700; color: #fff; }
+  .metric-sub { font-size: 9px; color: var(--muted); margin-top: 2px; }
+
+  /* MAIN GRID */
+  .main-grid { display: grid; grid-template-columns: 1fr 320px; gap: 12px; margin-bottom: 12px; }
+
+  /* CHART PANEL */
+  .panel {
+    background: var(--bg1); border: 1px solid var(--border); border-radius: 4px; overflow: hidden;
+  }
+  .panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 14px; border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+  }
+  .panel-title { font-family: 'Rajdhani', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 2px; color: var(--sol2); }
+  .panel-meta { font-size: 10px; color: var(--muted); }
+
+  .chart-wrap { padding: 8px; }
+  canvas.chart { width: 100% !important; }
+
+  /* PAIR SELECTOR */
+  .pair-tabs { display: flex; gap: 0; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  .pair-tab {
+    padding: 4px 12px; font-size: 11px; cursor: pointer; border-radius: 3px;
+    color: var(--muted); background: transparent; border: none; font-family: inherit;
+    transition: all 0.15s; letter-spacing: 1px;
+  }
+  .pair-tab.active { background: rgba(153,69,255,0.15); color: var(--sol2); border: 1px solid rgba(153,69,255,0.3); }
+
+  /* POSITION CARD */
+  .position-card {
+    margin: 8px 12px;
+    padding: 10px 14px;
+    background: linear-gradient(135deg, rgba(153,69,255,0.08), rgba(20,241,149,0.05));
+    border: 1px solid rgba(153,69,255,0.3); border-radius: 4px;
+  }
+  .position-row { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+  .pos-label { font-size: 10px; color: var(--sol); letter-spacing: 2px; font-weight: 700; }
+  .pos-val { font-size: 11px; }
+  .pos-val span { color: #fff; font-weight: 700; }
+
+  /* RIGHT PANEL */
+  .right-col { display: flex; flex-direction: column; gap: 12px; }
+
+  /* SIGNAL LIST */
+  .signal-list { max-height: 200px; overflow-y: auto; }
+  .signal-item {
+    display: flex; align-items: center; gap: 10px; padding: 7px 14px;
+    border-bottom: 1px solid rgba(26,48,80,0.5); font-size: 11px;
+    transition: background 0.2s;
+  }
+  .signal-item:hover { background: rgba(153,69,255,0.05); }
+  .sig-type { font-weight: 700; width: 36px; font-size: 12px; }
+  .sig-buy { color: var(--green); }
+  .sig-sell { color: var(--red); }
+  .sig-time { color: var(--muted); font-size: 10px; width: 55px; }
+  .sig-price { color: var(--text); }
+  .sig-str {
+    margin-left: auto; font-size: 9px; padding: 1px 6px; border-radius: 2px; letter-spacing: 1px;
+  }
+  .sig-str-buy { background: rgba(20,241,149,0.1); border: 1px solid rgba(20,241,149,0.3); color: var(--green); }
+  .sig-str-sell { background: rgba(255,61,90,0.1); border: 1px solid rgba(255,61,90,0.3); color: var(--red); }
+
+  /* TRADE LOG */
+  .trade-list { max-height: 220px; overflow-y: auto; }
+  .trade-item {
+    display: grid; grid-template-columns: 36px 52px 1fr 70px;
+    gap: 6px; align-items: center; padding: 6px 14px;
+    border-bottom: 1px solid rgba(26,48,80,0.5); font-size: 10px;
+  }
+  .trade-buy { color: var(--green); font-weight: 700; }
+  .trade-sell { color: var(--red); font-weight: 700; }
+  .trade-time { color: var(--muted); }
+  .trade-info { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .trade-pnl { text-align: right; font-weight: 700; font-size: 11px; }
+  .pnl-pos { color: var(--green); }
+  .pnl-neg { color: var(--red); }
+
+  /* SETTINGS */
+  .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px; }
+  .setting-item { background: var(--bg2); border: 1px solid var(--border); border-radius: 4px; padding: 10px; }
+  .setting-label { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+  .setting-val { color: var(--sol2); font-weight: 700; font-size: 12px; }
+  input[type=range] { width: 100%; accent-color: var(--sol); cursor: pointer; }
+
+  /* BOTTOM TABS */
+  .tab-bar { display: flex; border-bottom: 1px solid var(--border); }
+  .tab {
+    padding: 8px 16px; font-size: 10px; letter-spacing: 2px; cursor: pointer;
+    border: none; background: transparent; color: var(--muted); font-family: inherit;
+    border-bottom: 2px solid transparent; transition: all 0.15s;
+  }
+  .tab.active { color: var(--sol2); border-bottom-color: var(--sol2); }
+
+  /* STATUS BAR */
+  .statusbar {
+    display: flex; align-items: center; gap: 16px; padding: 6px 14px;
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 4px;
+    font-size: 10px; color: var(--muted); margin-top: 10px;
+  }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .status-live { background: var(--green); box-shadow: 0 0 6px var(--green); animation: blink 1.5s infinite; }
+  .status-idle { background: var(--muted); }
+
+  /* MINI INDICATORS */
+  .ind-row { display: flex; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .ind-badge {
+    font-size: 10px; padding: 2px 8px; border-radius: 2px;
+    background: var(--bg2); border: 1px solid var(--border); color: var(--text);
+  }
+  .ind-badge b { color: var(--sol2); }
+
+  /* JUPITER TX PANEL */
+  .tx-panel { padding: 10px 14px; }
+  .tx-item { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); padding: 3px 0; border-bottom: 1px solid rgba(26,48,80,0.3); }
+  .tx-item span:last-child { color: var(--text); }
+  .tx-hash { font-size: 9px; color: var(--sol); cursor: pointer; text-decoration: underline; }
+
+  /* ALERT */
+  .alert {
+    padding: 10px 14px; margin: 8px 12px;
+    border-radius: 4px; font-size: 11px; display: flex; gap: 10px; align-items: flex-start;
+    animation: fadeIn 0.3s ease;
+  }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:none} }
+  .alert-warn { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); color: #f59e0b; }
+  .alert-success { background: rgba(20,241,149,0.1); border: 1px solid rgba(20,241,149,0.3); color: var(--green); }
+  .alert-error { background: rgba(255,61,90,0.1); border: 1px solid rgba(255,61,90,0.3); color: var(--red); }
+
+  /* SCROLLBARS */
+  ::-webkit-scrollbar { width: 3px; } ::-webkit-scrollbar-track { background: var(--bg0); }
+  ::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 2px; }
+
+  .empty-state { padding: 24px; text-align: center; color: var(--muted); font-size: 11px; }
+
+  /* GLOW EFFECTS */
+  .glow-sol { text-shadow: 0 0 12px rgba(153,69,255,0.7); color: var(--sol); }
+  .glow-green { text-shadow: 0 0 10px rgba(20,241,149,0.6); color: var(--green); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="logo">
+      <div class="logo-icon">N</div>
+      <div>
+        <div class="logo-text">NEXUS</div>
+        <div class="logo-sub">AUTONOMOUS SOLANA TRADING BOT · JUPITER DEX</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div id="networkBadge" style="font-size:10px;color:var(--muted);letter-spacing:1px;padding:4px 10px;border:1px solid var(--border);border-radius:3px;">
+        SOLANA MAINNET
+      </div>
+      <button class="wallet-btn" id="walletBtn" onclick="connectWallet()">
+        <div class="wallet-dot" id="walletDot"></div>
+        <span id="walletLabel">CONNECT PHANTOM</span>
+      </button>
+      <button class="bot-toggle start" id="botToggle" onclick="toggleBot()" disabled>
+        ▶ START BOT
+      </button>
+    </div>
+  </div>
+
+  <!-- METRICS -->
+  <div class="metrics">
+    <div class="metric" id="m-price">
+      <div class="metric-label">SOL PRICE</div>
+      <div class="metric-val" id="solPrice">—</div>
+      <div class="metric-sub" id="priceChange">fetching...</div>
+    </div>
+    <div class="metric" id="m-portfolio">
+      <div class="metric-label">PORTFOLIO</div>
+      <div class="metric-val" id="portValue">—</div>
+      <div class="metric-sub" id="portSub">connect wallet</div>
+    </div>
+    <div class="metric" id="m-pnl">
+      <div class="metric-label">SESSION P&L</div>
+      <div class="metric-val" id="sessionPnl">$0.00</div>
+      <div class="metric-sub" id="pnlPct">0.00%</div>
+    </div>
+    <div class="metric" id="m-rsi">
+      <div class="metric-label">RSI (14)</div>
+      <div class="metric-val" id="rsiVal">—</div>
+      <div class="metric-sub" id="rsiStatus">—</div>
+    </div>
+    <div class="metric" id="m-trend">
+      <div class="metric-label">EMA TREND</div>
+      <div class="metric-val" id="trendVal">—</div>
+      <div class="metric-sub">EMA9 vs EMA21</div>
+    </div>
+    <div class="metric" id="m-trades">
+      <div class="metric-label">TOTAL TRADES</div>
+      <div class="metric-val" id="tradeCount">0</div>
+      <div class="metric-sub" id="winRate">—% win rate</div>
+    </div>
+  </div>
+
+  <!-- ALERT ZONE -->
+  <div id="alertZone"></div>
+
+  <!-- MAIN GRID -->
+  <div class="main-grid">
+
+    <!-- LEFT: CHART PANEL -->
+    <div class="panel">
+      <div class="pair-tabs">
+        <button class="pair-tab active" onclick="selectPair('SOL/USDC',this)">SOL/USDC</button>
+        <button class="pair-tab" onclick="selectPair('SOL/USDT',this)">SOL/USDT</button>
+        <button class="pair-tab" onclick="selectPair('SOL/BONK',this)">SOL/BONK</button>
+        <div style="margin-left:auto;font-size:10px;color:var(--muted);padding:4px 0;" id="lastUpdate">—</div>
+      </div>
+
+      <!-- INDICATOR BADGES -->
+      <div class="ind-row" id="indRow">
+        <div class="ind-badge">EMA9: <b id="ema9v">—</b></div>
+        <div class="ind-badge">EMA21: <b id="ema21v">—</b></div>
+        <div class="ind-badge">BB Upper: <b id="bbUpper">—</b></div>
+        <div class="ind-badge">BB Lower: <b id="bbLower">—</b></div>
+        <div class="ind-badge">Vol Avg: <b id="volAvg">—</b></div>
+        <div class="ind-badge">MACD: <b id="macdVal">—</b></div>
+      </div>
+
+      <!-- OPEN POSITION -->
+      <div id="positionCard" style="display:none" class="position-card">
+        <div class="position-row">
+          <span class="pos-label">◆ OPEN POSITION</span>
+          <span class="pos-val">Entry: <span id="posEntry">—</span></span>
+          <span class="pos-val">Size: <span id="posSize">—</span> SOL</span>
+          <span class="pos-val">Cost: <span id="posCost">—</span> USDC</span>
+          <span class="pos-val">Unrealized: <span id="posUnreal">—</span></span>
+          <span style="margin-left:auto;font-size:10px;color:var(--muted)" id="posTpSl">—</span>
+        </div>
+      </div>
+
+      <!-- CANDLE CHART -->
+      <div class="chart-wrap" style="height:240px">
+        <canvas id="candleChart" class="chart"></canvas>
+      </div>
+
+      <!-- VOLUME -->
+      <div style="border-top:1px solid var(--border)">
+        <div style="font-size:9px;color:var(--muted);padding:4px 14px;letter-spacing:1px">VOLUME</div>
+        <div class="chart-wrap" style="height:52px"><canvas id="volChart" class="chart"></canvas></div>
+      </div>
+
+      <!-- RSI -->
+      <div style="border-top:1px solid var(--border)">
+        <div style="font-size:9px;color:var(--muted);padding:4px 14px;letter-spacing:1px">RSI (14)</div>
+        <div class="chart-wrap" style="height:52px"><canvas id="rsiChart" class="chart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div class="right-col">
+
+      <!-- SIGNALS -->
+      <div class="panel" style="flex:1">
+        <div class="panel-header">
+          <span class="panel-title">SIGNALS</span>
+          <span class="panel-meta" id="signalCount">0 detected</span>
+        </div>
+        <div class="signal-list" id="signalList">
+          <div class="empty-state">Awaiting bot activation...</div>
+        </div>
+      </div>
+
+      <!-- JUPITER TX -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">JUPITER SWAPS</span>
+          <span class="panel-meta" id="jupStatus">READY</span>
+        </div>
+        <div class="tx-panel" id="jupTxList">
+          <div class="empty-state">No swaps executed yet.</div>
+        </div>
+      </div>
+
+      <!-- SETTINGS -->
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">BOT SETTINGS</span>
+        </div>
+        <div class="settings-grid">
+          <div class="setting-item">
+            <div class="setting-label"><span>RSI OVERSOLD</span><span class="setting-val" id="sv-rsiOs">30</span></div>
+            <input type="range" min="15" max="45" value="30" step="1" oninput="updateSetting('rsiOversold',this.value,'sv-rsiOs')">
+          </div>
+          <div class="setting-item">
+            <div class="setting-label"><span>RSI OVERBOUGHT</span><span class="setting-val" id="sv-rsiOb">70</span></div>
+            <input type="range" min="55" max="85" value="70" step="1" oninput="updateSetting('rsiOverbought',this.value,'sv-rsiOb')">
+          </div>
+          <div class="setting-item">
+            <div class="setting-label"><span>TRADE SIZE %</span><span class="setting-val" id="sv-ts">15</span></div>
+            <input type="range" min="5" max="50" value="15" step="5" oninput="updateSetting('tradeSize',this.value,'sv-ts')">
+          </div>
+          <div class="setting-item">
+            <div class="setting-label"><span>SIGNAL STRENGTH</span><span class="setting-val" id="sv-ss">4</span></div>
+            <input type="range" min="2" max="8" value="4" step="1" oninput="updateSetting('signalStrength',this.value,'sv-ss')">
+          </div>
+          <div class="setting-item">
+            <div class="setting-label"><span>STOP LOSS %</span><span class="setting-val" id="sv-sl">2.5</span></div>
+            <input type="range" min="0.5" max="10" value="2.5" step="0.5" oninput="updateSetting('stopLoss',this.value,'sv-sl')">
+          </div>
+          <div class="setting-item">
+            <div class="setting-label"><span>TAKE PROFIT %</span><span class="setting-val" id="sv-tp">5</span></div>
+            <input type="range" min="1" max="25" value="5" step="0.5" oninput="updateSetting('takeProfit',this.value,'sv-tp')">
+          </div>
+        </div>
+        <div style="padding:0 12px 10px;font-size:9px;color:var(--muted);line-height:1.6;letter-spacing:.5px">
+          SLIPPAGE: 0.5% · MAX RETRIES: 3 · PRIORITY FEE: MEDIUM<br>
+          JUPITER V6 API · AUTO-SIGN VIA PHANTOM
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TRADE LOG -->
+  <div class="panel">
+    <div class="tab-bar">
+      <button class="tab active" onclick="switchTab('trades',this)">TRADE LOG</button>
+      <button class="tab" onclick="switchTab('jupiter',this)">JUPITER ROUTES</button>
+      <button class="tab" onclick="switchTab('debug',this)">BOT LOG</button>
+    </div>
+    <div id="tab-trades">
+      <div class="trade-list" id="tradeLog">
+        <div class="empty-state">No trades yet. Start the bot to begin autonomous trading.</div>
+      </div>
+    </div>
+    <div id="tab-jupiter" style="display:none">
+      <div class="trade-list" id="jupRouteLog">
+        <div class="empty-state">Jupiter route data will appear here.</div>
+      </div>
+    </div>
+    <div id="tab-debug" style="display:none">
+      <div class="trade-list" id="debugLog" style="font-size:10px;color:var(--muted);padding:8px 14px;font-family:'Share Tech Mono',monospace;line-height:1.8">
+        [NEXUS] Bot initialized. Awaiting wallet connection...<br>
+      </div>
+    </div>
+  </div>
+
+  <!-- STATUS BAR -->
+  <div class="statusbar">
+    <div class="status-dot status-idle" id="statusDot"></div>
+    <span id="statusText">IDLE · Connect Phantom wallet to begin</span>
+    <span style="margin-left:auto;color:var(--border)">|</span>
+    <span>JUPITER V6</span>
+    <span style="color:var(--border)">|</span>
+    <span>SOLANA MAINNET</span>
+    <span style="color:var(--border)">|</span>
+    <span id="blockTime">—</span>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// NEXUS TRADING BOT — Solana + Phantom + Jupiter
+// ═══════════════════════════════════════════════════════════════
+
+// ── TOKEN MINT ADDRESSES (Solana Mainnet) ──────────────────────
+const TOKENS = {
+  SOL:  { mint: "So11111111111111111111111111111111111111112",  decimals: 9,  symbol: "SOL"  },
+  USDC: { mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", decimals: 6,  symbol: "USDC" },
+  USDT: { mint: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", decimals: 6,  symbol: "USDT" },
+  BONK: { mint: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", decimals: 5,  symbol: "BONK" },
+};
+
+// ── PAIR CONFIG ────────────────────────────────────────────────
+const PAIRS = {
+  "SOL/USDC": { base: "SOL", quote: "USDC", denom: 2 },
+  "SOL/USDT": { base: "SOL", quote: "USDT", denom: 2 },
+  "SOL/BONK": { base: "SOL", quote: "BONK", denom: 0 },
+};
+
+// ── STATE ──────────────────────────────────────────────────────
+let state = {
+  wallet: null,
+  publicKey: null,
+  connected: false,
+  botActive: false,
+  selectedPair: "SOL/USDC",
+  candles: [],
+  openPosition: null,
+  trades: [],
+  signals: [],
+  jupRoutes: [],
+  sessionPnl: 0,
+  sessionStart: null,
+  settings: {
+    rsiOversold: 30, rsiOverbought: 70,
+    tradeSize: 15, signalStrength: 4,
+    stopLoss: 2.5, takeProfit: 5.0,
+    slippageBps: 50,   // 0.5%
+    priorityFee: 1000, // microlamports
+  },
+  balances: { SOL: 0, USDC: 0 },
+  charts: {},
+  intervals: [],
+  debugLines: ["[NEXUS] Bot initialized. Awaiting wallet connection..."],
+};
+
+// ── JUPITER API ────────────────────────────────────────────────
+const JUP_API = "https://quote-api.jup.ag/v6";
+const SOL_RPC = "https://solana-rpc.publicnode.com";
+
+// ── PLATFORM FEE (NEXUS revenue) ───────────────────────────────
+// Fee is collected in the OUTPUT token of every swap and sent to
+// the Associated Token Account of FEE_WALLET for that token.
+// One-time setup: the ATA for each output mint (USDC, wSOL) must
+// exist on-chain. Easiest way: send a tiny amount of USDC and a
+// tiny amount of wrapped SOL to FEE_WALLET once — Phantom will
+// auto-create the ATAs.
+const FEE_WALLET = "9KfD5KtdQ932cGW3zgVz7ppz1WDbvk72UUkr3Le1v3Bc";
+const FEE_BPS    = 30; // 0.30%
+
+// SPL Associated Token Account derivation (no deps, pure JS).
+let _splCache = null;
+async function getFeeAccount(outputMint) {
+  if (!_splCache) {
+    const spl = await import("https://esm.run/@solana/spl-token");
+    const web3 = await import("https://esm.run/@solana/web3.js");
+    _splCache = { spl, web3 };
+  }
+  const { spl, web3 } = _splCache;
+  const ata = spl.getAssociatedTokenAddressSync(
+    new web3.PublicKey(outputMint),
+    new web3.PublicKey(FEE_WALLET)
+  );
+  return ata.toBase58();
+}
+
+// ── PRICE FEED (Birdeye public) ────────────────────────────────
+const PRICE_API = "https://public-api.birdeye.so/defi/price";
+
+// ═══════════════════════════════════════════════════════════════
+// WALLET CONNECTION
+// ═══════════════════════════════════════════════════════════════
+async function connectWallet() {
+  try {
+    // Check for Phantom
+    const phantom = window.solana || window.phantom?.solana;
+    if (!phantom || !phantom.isPhantom) {
+      showAlert("error", "⚠ Phantom wallet not detected. Install it from phantom.app");
+      logDebug("[WALLET] Phantom not found. Please install the Phantom browser extension.");
+      // For demo: simulate connection
+      simulateWalletConnect();
+      return;
+    }
+
+    logDebug("[WALLET] Requesting Phantom connection...");
+    const resp = await phantom.connect();
+    state.wallet = phantom;
+    state.publicKey = resp.publicKey.toString();
+    state.connected = true;
+
+    document.getElementById("walletDot").className = "wallet-dot on";
+    document.getElementById("walletLabel").textContent = truncateAddr(state.publicKey);
+    document.getElementById("walletBtn").classList.add("connected");
+    document.getElementById("botToggle").disabled = false;
+
+    logDebug(`[WALLET] Connected: ${state.publicKey}`);
+    showAlert("success", `✓ Phantom connected: ${truncateAddr(state.publicKey)}`);
+
+    await fetchBalances();
+    startPriceFeed();
+
+  } catch (err) {
+    showAlert("error", `Wallet error: ${err.message}`);
+    logDebug(`[WALLET ERROR] ${err.message}`);
+  }
+}
+
+function simulateWalletConnect() {
+  // DEMO MODE when Phantom isn't installed
+  const mockKey = "7xKX" + Math.random().toString(36).substr(2,8).toUpperCase() + "...Pq3N";
+  state.publicKey = mockKey;
+  state.connected = true;
+  state.wallet = "DEMO";
+  state.balances = { SOL: 4.23, USDC: 1500.00 };
+
+  document.getElementById("walletDot").className = "wallet-dot on";
+  document.getElementById("walletLabel").textContent = mockKey;
+  document.getElementById("walletBtn").classList.add("connected");
+  document.getElementById("botToggle").disabled = false;
+
+  logDebug(`[DEMO MODE] Phantom not detected — running in simulation mode.`);
+  logDebug(`[DEMO MODE] Mock wallet: ${mockKey}`);
+  logDebug(`[DEMO MODE] Balances: 4.23 SOL, 1500 USDC`);
+  showAlert("warn", "⚠ DEMO MODE — Phantom not detected. Trades are simulated. Install Phantom to trade real funds.");
+
+  updatePortfolioDisplay();
+  startPriceFeed();
+}
+
+// ── BALANCES ───────────────────────────────────────────────────
+const RPC_ENDPOINTS = [
+  "https://solana-rpc.publicnode.com",
+  "https://api.mainnet-beta.solana.com",
+  "https://solana.drpc.org",
+];
+
+async function rpcCall(body) {
+  let lastErr;
+  for (const url of RPC_ENDPOINTS) {
+    try {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      if (!r.ok) { lastErr = new Error(`${url} -> HTTP ${r.status}`); continue; }
+      const j = await r.json();
+      if (j.error) { lastErr = new Error(`${url} -> ${j.error.message}`); continue; }
+      return j;
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr || new Error("All RPCs failed");
+}
+
+async function fetchBalances() {
+  if (state.wallet === "DEMO") return;
+  if (!state.publicKey) { logDebug("[BALANCE] No wallet connected."); return; }
+  try {
+    logDebug(`[RPC] Fetching balances for ${state.publicKey.slice(0,6)}...${state.publicKey.slice(-4)}`);
+
+    const solData = await rpcCall({
+      jsonrpc: "2.0", id: 1, method: "getBalance",
+      params: [state.publicKey, { commitment: "confirmed" }]
+    });
+    state.balances.SOL = (solData.result?.value || 0) / 1e9;
+
+    const tokenData = await rpcCall({
+      jsonrpc: "2.0", id: 2,
+      method: "getTokenAccountsByOwner",
+      params: [state.publicKey,
+        { mint: TOKENS.USDC.mint },
+        { encoding: "jsonParsed", commitment: "confirmed" }
+      ]
+    });
+    const accounts = tokenData.result?.value || [];
+    state.balances.USDC = accounts.length > 0
+      ? (accounts[0].account.data.parsed.info.tokenAmount.uiAmount || 0)
+      : 0;
+
+    logDebug(`[BALANCE] SOL: ${state.balances.SOL.toFixed(4)}  USDC: ${state.balances.USDC.toFixed(2)}`);
+    updatePortfolioDisplay();
+    showAlert("success", `Balances: ${state.balances.SOL.toFixed(3)} SOL · ${state.balances.USDC.toFixed(2)} USDC`);
+
+  } catch (err) {
+    logDebug(`[BALANCE ERROR] ${err.message}`);
+    showAlert("error", `Balance fetch failed: ${err.message}. Tap portfolio to retry.`);
+  }
+}
+
+// Auto-refresh balances every 30s + click portfolio to refresh manually
+setInterval(() => { if (state.publicKey && state.wallet !== "DEMO") fetchBalances(); }, 30000);
+window.addEventListener("DOMContentLoaded", () => {
+  const card = document.getElementById("portValue")?.closest(".card") || document.getElementById("portValue")?.parentElement;
+  if (card) { card.style.cursor = "pointer"; card.title = "Click to refresh balances"; card.addEventListener("click", () => fetchBalances()); }
+});
+
+function updatePortfolioDisplay() {
+  const price = state.candles.length ? state.candles[state.candles.length-1].close : 0;
+  const total = state.balances.USDC + state.balances.SOL * price;
+  document.getElementById("portValue").textContent = total > 0 ? `$${total.toFixed(2)}` : `${state.balances.SOL.toFixed(3)} SOL`;
+  document.getElementById("portSub").textContent = `${state.balances.SOL.toFixed(3)} SOL · ${state.balances.USDC.toFixed(2)} USDC`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PRICE FEED — CoinGecko API (primary, free, no key needed)
+// ═══════════════════════════════════════════════════════════════
+
+// CoinGecko token IDs
+const CG_IDS = { SOL: "solana", USDC: "usd-coin", USDT: "tether", BONK: "bonk" };
+
+async function fetchCurrentPrice() {
+  const pair = PAIRS[state.selectedPair];
+
+  // --- Method 1: CoinGecko (primary — real market price) ---
+  try {
+    const baseId  = CG_IDS[pair.base];
+    const quoteId = CG_IDS[pair.quote];
+    // For stablecoin pairs (USDC/USDT) just fetch base vs USD
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${baseId},${quoteId}&vs_currencies=usd&include_24hr_change=true`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+
+    const basePrice  = data?.[baseId]?.usd;
+    const quotePrice = data?.[quoteId]?.usd || 1; // stablecoins = ~$1
+    const change24h  = data?.[baseId]?.usd_24h_change;
+
+    if (basePrice) {
+      const price = basePrice / quotePrice;
+      // Update 24h change display
+      if (change24h !== undefined) {
+        const changeEl = document.getElementById("priceChange");
+        changeEl.textContent = `${change24h >= 0 ? "▲" : "▼"} ${Math.abs(change24h).toFixed(2)}% 24h`;
+        changeEl.style.color = change24h >= 0 ? "var(--green)" : "var(--red)";
+      }
+      logDebug(`[PRICE] CoinGecko: $${price.toFixed(4)}`);
+      return { price, source: "CoinGecko" };
+    }
+  } catch (err) {
+    logDebug(`[PRICE] CoinGecko failed: ${err.message}`);
+  }
+
+  // --- Method 2: Jupiter Quote API fallback ---
+  try {
+    const inMint  = TOKENS[pair.base].mint;
+    const outMint = TOKENS[pair.quote].mint;
+    const inAmt   = 1 * Math.pow(10, TOKENS[pair.base].decimals);
+    const url = `${JUP_API}/quote?inputMint=${inMint}&outputMint=${outMint}&amount=${inAmt}&slippageBps=${state.settings.slippageBps}`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (data.outAmount) {
+      const price = data.outAmount / Math.pow(10, TOKENS[pair.quote].decimals);
+      logDebug(`[PRICE] Jupiter fallback: $${price.toFixed(4)}`);
+      return { price, source: "Jupiter" };
+    }
+  } catch (err) {
+    logDebug(`[PRICE] Jupiter fallback failed: ${err.message}`);
+  }
+
+  // --- Final: hold last known price ---
+  const last = state.candles.length ? state.candles[state.candles.length-1].close : 85.00;
+  logDebug(`[PRICE] All APIs failed — holding $${last.toFixed(2)}`);
+  return { price: last, source: "cached" };
+}
+
+function startPriceFeed() {
+  logDebug("[FEED] Starting price feed (Jupiter quote API)...");
+  updateBlockTime();
+
+  const priceInterval = setInterval(async () => {
+    const { price, route } = await fetchCurrentPrice();
+    addCandle(price);
+    updateCharts();
+    updateIndicators();
+    updatePortfolioDisplay();
+
+    document.getElementById("solPrice").textContent = `$${price.toFixed(2)}`;
+    document.getElementById("lastUpdate").textContent = new Date().toLocaleTimeString();
+    document.getElementById("blockTime").textContent = `SLOT: ${Math.floor(Date.now()/400) % 1000000}`;
+    flashMetric("m-price");
+
+    if (state.openPosition) {
+      updatePositionCard(price);
+      checkExitConditions(price);
+    }
+  }, 2000);
+  state.intervals.push(priceInterval);
+
+  // Bot loop — runs every 5s
+  const botInterval = setInterval(async () => {
+    if (!state.botActive || state.candles.length < 30) return;
+    await runBotLogic();
+  }, 5000);
+  state.intervals.push(botInterval);
+}
+
+function updateBlockTime() {
+  setInterval(() => {
+    document.getElementById("blockTime").textContent = `SLOT ~${(Date.now()/400|0).toString().slice(-6)}`;
+  }, 400);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CANDLE GENERATION
+// ═══════════════════════════════════════════════════════════════
+function addCandle(price) {
+  const prev = state.candles[state.candles.length - 1];
+  if (!prev) {
+    state.candles.push({ open: price, high: price, low: price, close: price, volume: 100000, time: Date.now() });
+    return;
+  }
+
+  const lastTime = prev.time;
+  const now = Date.now();
+
+  if (now - lastTime < 15000) {
+    // Update current candle
+    const c = state.candles[state.candles.length - 1];
+    c.close = price;
+    c.high  = Math.max(c.high, price);
+    c.low   = Math.min(c.low,  price);
+    c.volume += 5000 + Math.random() * 30000;
+  } else {
+    // New candle
+    state.candles.push({
+      open: prev.close, high: Math.max(prev.close, price),
+      low: Math.min(prev.close, price), close: price,
+      volume: 50000 + Math.random() * 200000, time: now
+    });
+    if (state.candles.length > 120) state.candles.shift();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INDICATORS
+// ═══════════════════════════════════════════════════════════════
+function calcEMA(arr, period) {
+  const k = 2 / (period + 1);
+  let ema = arr[0];
+  return arr.map((v, i) => { ema = i === 0 ? v : v * k + ema * (1 - k); return ema; });
+}
+function calcRSI(closes, period = 14) {
+  if (closes.length < period + 1) return closes.map(() => 50);
+  const gains = [], losses = [];
+  for (let i = 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i-1];
+    gains.push(d > 0 ? d : 0); losses.push(d < 0 ? -d : 0);
+  }
+  let ag = gains.slice(0, period).reduce((a,b)=>a+b)/period;
+  let al = losses.slice(0,period).reduce((a,b)=>a+b)/period;
+  const result = Array(period).fill(50);
+  for (let i = period; i < gains.length; i++) {
+    ag = (ag*(period-1)+gains[i])/period;
+    al = (al*(period-1)+losses[i])/period;
+    result.push(100 - 100/(1+(al===0?1000:ag/al)));
+  }
+  return result;
+}
+function calcMACD(closes) {
+  const e12 = calcEMA(closes, 12), e26 = calcEMA(closes, 26);
+  const line = e12.map((v,i) => v - e26[i]);
+  const sig  = calcEMA(line.slice(26), 9);
+  return { line, signal: Array(26+9).fill(null).concat(sig) };
+}
+function calcBB(closes, p=20, m=2) {
+  return closes.map((_,i) => {
+    if (i < p-1) return { u: null, mid: null, l: null };
+    const sl = closes.slice(i-p+1, i+1);
+    const mean = sl.reduce((a,b)=>a+b)/p;
+    const std  = Math.sqrt(sl.reduce((a,b)=>a+(b-mean)**2,0)/p);
+    return { u: mean+m*std, mid: mean, l: mean-m*std };
+  });
+}
+
+function getIndicators() {
+  const closes  = state.candles.map(c => c.close);
+  const ema9    = calcEMA(closes, 9);
+  const ema21   = calcEMA(closes, 21);
+  const rsi     = calcRSI(closes, 14);
+  const bb      = calcBB(closes);
+  const macd    = calcMACD(closes);
+  return { closes, ema9, ema21, rsi, bb, macd };
+}
+
+function updateIndicators() {
+  if (state.candles.length < 5) return;
+  const { closes, ema9, ema21, rsi, bb, macd } = getIndicators();
+  const n = closes.length - 1;
+  const price = closes[n];
+  const denom = PAIRS[state.selectedPair].denom;
+
+  document.getElementById("ema9v").textContent    = ema9[n].toFixed(denom);
+  document.getElementById("ema21v").textContent   = ema21[n].toFixed(denom);
+  document.getElementById("bbUpper").textContent  = bb[n].u ? bb[n].u.toFixed(denom) : "—";
+  document.getElementById("bbLower").textContent  = bb[n].l ? bb[n].l.toFixed(denom) : "—";
+  document.getElementById("macdVal").textContent  = macd.line[n].toFixed(3);
+
+  const volumes = state.candles.map(c => c.volume);
+  const avgVol  = volumes.slice(-10).reduce((a,b)=>a+b,0)/10;
+  document.getElementById("volAvg").textContent = (avgVol/1000).toFixed(0) + "K";
+
+  const rsiNow = rsi[n];
+  document.getElementById("rsiVal").textContent = rsiNow.toFixed(1);
+  document.getElementById("rsiVal").style.color  = rsiNow > 70 ? "var(--red)" : rsiNow < 30 ? "var(--green)" : "var(--amber)";
+  document.getElementById("rsiStatus").textContent = rsiNow > 70 ? "OVERBOUGHT" : rsiNow < 30 ? "OVERSOLD" : "NEUTRAL";
+
+  const bullish = ema9[n] > ema21[n];
+  document.getElementById("trendVal").textContent = bullish ? "BULLISH" : "BEARISH";
+  document.getElementById("trendVal").style.color = bullish ? "var(--green)" : "var(--red)";
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SIGNAL ENGINE
+// ═══════════════════════════════════════════════════════════════
+function generateSignal() {
+  if (state.candles.length < 30) return null;
+  const { closes, ema9, ema21, rsi, bb, macd } = getIndicators();
+  const n = closes.length - 1, p = n - 1;
+
+  const emaCrossUp    = ema9[n] > ema21[n] && ema9[p] <= ema21[p];
+  const emaCrossDown  = ema9[n] < ema21[n] && ema9[p] >= ema21[p];
+  const rsiOs         = rsi[n] < state.settings.rsiOversold;
+  const rsiOb         = rsi[n] > state.settings.rsiOverbought;
+  const macdBull      = macd.signal[n] && macd.line[n] > macd.signal[n] && macd.line[p] <= macd.signal[p];
+  const macdBear      = macd.signal[n] && macd.line[n] < macd.signal[n] && macd.line[p] >= macd.signal[p];
+  const bbLow         = bb[n].l && closes[n] < bb[n].l;
+  const bbHigh        = bb[n].u && closes[n] > bb[n].u;
+  const vols          = state.candles.map(c => c.volume);
+  const volSpike      = vols[n] > vols.slice(-10).reduce((a,b)=>a+b,0)/10 * 1.4;
+  const aboveEma21    = closes[n] > ema21[n];
+
+  let buy = 0, sell = 0;
+  if (emaCrossUp)   buy  += 3;
+  if (rsiOs)        buy  += 2;
+  if (macdBull)     buy  += 2;
+  if (bbLow)        buy  += 1;
+  if (volSpike)     buy  += 1;
+  if (aboveEma21)   buy  += 1;
+  if (emaCrossDown) sell += 3;
+  if (rsiOb)        sell += 2;
+  if (macdBear)     sell += 2;
+  if (bbHigh)       sell += 1;
+  if (!aboveEma21)  sell += 1;
+
+  const reasons = [];
+  if (emaCrossUp)   reasons.push("EMA Cross↑");
+  if (rsiOs)        reasons.push(`RSI ${rsi[n].toFixed(0)}`);
+  if (macdBull)     reasons.push("MACD↑");
+  if (bbLow)        reasons.push("BB Low");
+  if (emaCrossDown) reasons.push("EMA Cross↓");
+  if (rsiOb)        reasons.push(`RSI ${rsi[n].toFixed(0)}`);
+  if (macdBear)     reasons.push("MACD↓");
+
+  if (buy  >= state.settings.signalStrength) return { type: "BUY",  score: buy,  rsi: rsi[n], reasons };
+  if (sell >= state.settings.signalStrength) return { type: "SELL", score: sell, rsi: rsi[n], reasons };
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BOT LOGIC LOOP
+// ═══════════════════════════════════════════════════════════════
+async function runBotLogic() {
+  const signal = generateSignal();
+  if (!signal) return;
+
+  const price = state.candles[state.candles.length-1].close;
+  logDebug(`[SIGNAL] ${signal.type} @ $${price.toFixed(2)} — Score:${signal.score} — ${signal.reasons.join(", ")}`);
+
+  // Add to signal list
+  addSignal(signal, price);
+
+  if (signal.type === "BUY" && !state.openPosition) {
+    await executeBuy(price, signal);
+  } else if (signal.type === "SELL" && state.openPosition) {
+    await executeSell(price, "SIGNAL");
+  }
+}
+
+function checkExitConditions(price) {
+  if (!state.openPosition) return;
+  const pct = ((price - state.openPosition.entryPrice) / state.openPosition.entryPrice) * 100;
+  if (pct <= -state.settings.stopLoss) {
+    executeSell(price, "STOP LOSS");
+  } else if (pct >= state.settings.takeProfit) {
+    executeSell(price, "TAKE PROFIT");
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// JUPITER SWAP EXECUTION
+// ═══════════════════════════════════════════════════════════════
+async function executeBuy(price, signal) {
+  const pair   = PAIRS[state.selectedPair];
+  const budget = state.balances.USDC * (state.settings.tradeSize / 100);
+  if (budget < 1) { logDebug("[BUY] Insufficient USDC balance."); return; }
+
+  logDebug(`[BUY] Initiating Jupiter swap: ${budget.toFixed(2)} USDC → SOL`);
+  document.getElementById("jupStatus").textContent = "QUOTING...";
+
+  try {
+    // 1. Get Jupiter quote
+    const inMint  = TOKENS[pair.quote].mint; // USDC in
+    const outMint = TOKENS[pair.base].mint;  // SOL out
+    const inAmount = Math.floor(budget * Math.pow(10, TOKENS[pair.quote].decimals));
+
+    const quoteResp = await fetch(
+      `${JUP_API}/quote?inputMint=${inMint}&outputMint=${outMint}&amount=${inAmount}&slippageBps=${state.settings.slippageBps}&platformFeeBps=${FEE_BPS}`
+    );
+    const quote = await quoteResp.json();
+
+    if (!quote.outAmount && state.wallet !== "DEMO") {
+      logDebug(`[BUY] Quote failed: ${JSON.stringify(quote)}`);
+      return;
+    }
+
+    const solOut = state.wallet === "DEMO"
+      ? budget / price
+      : quote.outAmount / Math.pow(10, TOKENS[pair.base].decimals);
+
+    document.getElementById("jupStatus").textContent = "SWAPPING...";
+
+    let txSig = null;
+    if (state.wallet !== "DEMO") {
+      // 2. Get swap transaction (with platform fee account)
+      const feeAccount = await getFeeAccount(outMint);
+      const swapResp = await fetch(`${JUP_API}/swap`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          quoteResponse: quote,
+          userPublicKey: state.publicKey,
+          wrapAndUnwrapSol: true,
+          prioritizationFeeLamports: state.settings.priorityFee,
+          dynamicComputeUnitLimit: true,
+          feeAccount,
+        })
+      });
+      const swapData = await swapResp.json();
+
+      // 3. Deserialize & sign via Phantom
+      const { VersionedTransaction } = await import("https://esm.run/@solana/web3.js");
+      const txBytes = Uint8Array.from(atob(swapData.swapTransaction), c => c.charCodeAt(0));
+      const tx = VersionedTransaction.deserialize(txBytes);
+
+      // 4. Sign & send
+      const signed = await state.wallet.signTransaction(tx);
+      const sendResp = await fetch(SOL_RPC, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0", id: 1, method: "sendTransaction",
+          params: [btoa(String.fromCharCode(...signed.serialize())),
+            { encoding: "base64", maxRetries: 3, preflightCommitment: "confirmed" }]
+        })
+      });
+      const sendData = await sendResp.json();
+      txSig = sendData.result;
+      logDebug(`[TX] Sent! Sig: ${txSig}`);
+    } else {
+      // DEMO: simulate tx
+      txSig = "DEMO_" + Math.random().toString(36).substr(2,20).toUpperCase();
+      logDebug(`[DEMO TX] Buy simulated. Sig: ${txSig}`);
+    }
+
+    // Record position
+    state.openPosition = {
+      entryPrice: price,
+      size: solOut,
+      cost: budget,
+      txSig,
+      time: new Date().toLocaleTimeString(),
+      signal: signal.reasons.join(", ")
+    };
+
+    // Update balances
+    state.balances.USDC -= budget;
+    state.balances.SOL  += solOut;
+
+    // Log trade
+    addTradeLog("BUY", price, solOut, null, signal.reasons.join(", "), txSig);
+    addJupRoute("BUY", `${budget.toFixed(2)} USDC`, `${solOut.toFixed(4)} SOL`, price, txSig);
+
+    document.getElementById("jupStatus").textContent = "COMPLETE";
+    document.getElementById("positionCard").style.display = "";
+    showAlert("success", `✓ BUY executed: ${solOut.toFixed(4)} SOL @ $${price.toFixed(2)}`);
+
+  } catch (err) {
+    logDebug(`[BUY ERROR] ${err.message}`);
+    document.getElementById("jupStatus").textContent = "ERROR";
+    showAlert("error", `Buy failed: ${err.message}`);
+  }
+}
+
+async function executeSell(price, reason) {
+  if (!state.openPosition) return;
+  const pos = state.openPosition;
+  logDebug(`[SELL] ${reason} — ${pos.size.toFixed(4)} SOL @ $${price.toFixed(2)}`);
+  document.getElementById("jupStatus").textContent = "QUOTING...";
+
+  try {
+    const pair     = PAIRS[state.selectedPair];
+    const inMint   = TOKENS[pair.base].mint;  // SOL in
+    const outMint  = TOKENS[pair.quote].mint; // USDC out
+    const inAmount = Math.floor(pos.size * Math.pow(10, TOKENS[pair.base].decimals));
+
+    const quoteResp = await fetch(
+      `${JUP_API}/quote?inputMint=${inMint}&outputMint=${outMint}&amount=${inAmount}&slippageBps=${state.settings.slippageBps}&platformFeeBps=${FEE_BPS}`
+    );
+    const quote = await quoteResp.json();
+
+    const usdcOut = state.wallet !== "DEMO" && quote.outAmount
+      ? quote.outAmount / Math.pow(10, TOKENS[pair.quote].decimals)
+      : pos.size * price;
+
+    let txSig = null;
+    if (state.wallet !== "DEMO") {
+      const feeAccount = await getFeeAccount(outMint);
+      const swapResp = await fetch(`${JUP_API}/swap`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          quoteResponse: quote,
+          userPublicKey: state.publicKey,
+          wrapAndUnwrapSol: true,
+          prioritizationFeeLamports: state.settings.priorityFee,
+          feeAccount,
+        })
+      });
+      const swapData = await swapResp.json();
+      const { VersionedTransaction } = await import("https://esm.run/@solana/web3.js");
+      const txBytes = Uint8Array.from(atob(swapData.swapTransaction), c => c.charCodeAt(0));
+      const tx = VersionedTransaction.deserialize(txBytes);
+      const signed = await state.wallet.signTransaction(tx);
+      const sendResp = await fetch(SOL_RPC, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0", id: 1, method: "sendTransaction",
+          params: [btoa(String.fromCharCode(...signed.serialize())), { encoding: "base64", maxRetries: 3 }]
+        })
+      });
+      txSig = (await sendResp.json()).result;
+    } else {
+      txSig = "DEMO_" + Math.random().toString(36).substr(2,20).toUpperCase();
+    }
+
+    const tradePnl = usdcOut - pos.cost;
+    state.sessionPnl += tradePnl;
+
+    // Update balances
+    state.balances.USDC += usdcOut;
+    state.balances.SOL  -= pos.size;
+
+    addTradeLog("SELL", price, pos.size, tradePnl, reason, txSig);
+    addJupRoute("SELL", `${pos.size.toFixed(4)} SOL`, `${usdcOut.toFixed(2)} USDC`, price, txSig);
+
+    state.openPosition = null;
+    document.getElementById("positionCard").style.display = "none";
+    document.getElementById("jupStatus").textContent = "COMPLETE";
+
+    // Update P&L display
+    const pnlEl = document.getElementById("sessionPnl");
+    pnlEl.textContent = (state.sessionPnl >= 0 ? "+$" : "-$") + Math.abs(state.sessionPnl).toFixed(2);
+    pnlEl.style.color = state.sessionPnl >= 0 ? "var(--green)" : "var(--red)";
+
+    const pct = (state.sessionPnl / 10000) * 100;
+    document.getElementById("pnlPct").textContent = `${pct >= 0 ? "+" : ""}${pct.toFixed(3)}%`;
+
+    const msg = `${reason}: ${tradePnl >= 0 ? "+" : ""}$${tradePnl.toFixed(2)} PNL`;
+    showAlert(tradePnl >= 0 ? "success" : "error", msg);
+    logDebug(`[SELL] ${reason} complete. PnL: ${tradePnl >= 0 ? "+" : ""}$${tradePnl.toFixed(2)}`);
+
+    updatePortfolioDisplay();
+    updateWinRate();
+
+  } catch (err) {
+    logDebug(`[SELL ERROR] ${err.message}`);
+    showAlert("error", `Sell failed: ${err.message}`);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CHART RENDERING
+// ═══════════════════════════════════════════════════════════════
+function updateCharts() {
+  if (state.candles.length < 5) return;
+  const visible = state.candles.slice(-50);
+  const closes  = visible.map(c => c.close);
+  const labels  = visible.map((_, i) => i);
+  const ema9    = calcEMA(closes, 9);
+  const ema21   = calcEMA(closes, 21);
+  const bb      = calcBB(closes);
+
+  // Candle chart (using line for Chart.js compat)
+  if (!state.charts.candle) {
+    const ctx = document.getElementById("candleChart").getContext("2d");
+    state.charts.candle = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          { label: "Price",  data: closes, borderColor: "#14F195", borderWidth: 1.5, pointRadius: 0, tension: 0.1, fill: false },
+          { label: "EMA9",   data: ema9,   borderColor: "#f59e0b", borderWidth: 1.2, pointRadius: 0, tension: 0.1, fill: false },
+          { label: "EMA21",  data: ema21,  borderColor: "#9945FF", borderWidth: 1.2, pointRadius: 0, tension: 0.1, fill: false },
+          { label: "BB Up",  data: bb.map(b=>b.u),  borderColor: "rgba(153,69,255,0.3)", borderWidth: 1, pointRadius: 0, fill: false, borderDash: [3,3] },
+          { label: "BB Low", data: bb.map(b=>b.l),  borderColor: "rgba(153,69,255,0.3)", borderWidth: 1, pointRadius: 0, fill: false, borderDash: [3,3] },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { display: false },
+          y: { grid: { color: "rgba(26,48,80,0.5)" }, ticks: { color: "#4a6080", font: { family: "Share Tech Mono", size: 9 } } }
+        }
+      }
+    });
+  } else {
+    const c = state.charts.candle;
+    c.data.labels = labels;
+    c.data.datasets[0].data = closes;
+    c.data.datasets[1].data = ema9;
+    c.data.datasets[2].data = ema21;
+    c.data.datasets[3].data = bb.map(b=>b.u);
+    c.data.datasets[4].data = bb.map(b=>b.l);
+    c.update("none");
+  }
+
+  // Volume chart
+  if (!state.charts.vol) {
+    const ctx = document.getElementById("volChart").getContext("2d");
+    state.charts.vol = new Chart(ctx, {
+      type: "bar",
+      data: { labels, datasets: [{ data: visible.map(c=>c.volume), backgroundColor: visible.map(c=>c.close>=c.open ? "rgba(20,241,149,0.4)" : "rgba(255,61,90,0.4)"), borderWidth: 0 }] },
+      options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { display: false } } }
+    });
+  } else {
+    state.charts.vol.data.labels = labels;
+    state.charts.vol.data.datasets[0].data = visible.map(c=>c.volume);
+    state.charts.vol.data.datasets[0].backgroundColor = visible.map(c=>c.close>=c.open?"rgba(20,241,149,0.4)":"rgba(255,61,90,0.4)");
+    state.charts.vol.update("none");
+  }
+
+  // RSI chart
+  const rsi = calcRSI(closes, 14);
+  if (!state.charts.rsi) {
+    const ctx = document.getElementById("rsiChart").getContext("2d");
+    state.charts.rsi = new Chart(ctx, {
+      type: "line",
+      data: { labels, datasets: [{ data: rsi, borderColor: "#f59e0b", borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0.2 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: { legend: { display: false }, annotation: {} },
+        scales: { x: { display: false }, y: { min: 0, max: 100, display: false, grid: { color: "rgba(26,48,80,0.3)" } } }
+      }
+    });
+  } else {
+    state.charts.rsi.data.labels = labels;
+    state.charts.rsi.data.datasets[0].data = rsi;
+    state.charts.rsi.update("none");
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UI HELPERS
+// ═══════════════════════════════════════════════════════════════
+function addSignal(signal, price) {
+  state.signals.unshift({ ...signal, price, time: new Date().toLocaleTimeString() });
+  if (state.signals.length > 30) state.signals.pop();
+
+  const el = document.getElementById("signalList");
+  if (el.querySelector(".empty-state")) el.innerHTML = "";
+
+  const item = document.createElement("div");
+  item.className = "signal-item";
+  item.innerHTML = `
+    <span class="sig-type ${signal.type==="BUY"?"sig-buy":"sig-sell"}">${signal.type}</span>
+    <span class="sig-time">${new Date().toLocaleTimeString()}</span>
+    <span class="sig-price">$${price.toFixed(2)}</span>
+    <span style="font-size:10px;color:var(--muted);flex:1">${signal.reasons.join(" · ")}</span>
+    <span class="sig-str ${signal.type==="BUY"?"sig-str-buy":"sig-str-sell"}">STR:${signal.score}</span>
+  `;
+  el.insertBefore(item, el.firstChild);
+  document.getElementById("signalCount").textContent = `${state.signals.length} detected`;
+}
+
+function addTradeLog(type, price, size, pnl, reason, txSig) {
+  state.trades.unshift({ type, price, size, pnl, reason, txSig, time: new Date().toLocaleTimeString() });
+  const el = document.getElementById("tradeLog");
+  if (el.querySelector(".empty-state")) el.innerHTML = "";
+
+  const item = document.createElement("div");
+  item.className = "trade-item";
+  item.innerHTML = `
+    <span class="${type==="BUY"?"trade-buy":"trade-sell"}">${type}</span>
+    <span class="trade-time">${new Date().toLocaleTimeString()}</span>
+    <span class="trade-info">$${price.toFixed(2)} · ${size.toFixed(4)} SOL · ${reason}</span>
+    <span class="trade-pnl ${pnl===null?"":pnl>=0?"pnl-pos":"pnl-neg"}">
+      ${pnl===null?"—":(pnl>=0?"+$":"−$")+Math.abs(pnl).toFixed(2)}
+    </span>
+  `;
+  el.insertBefore(item, el.firstChild);
+
+  document.getElementById("tradeCount").textContent = state.trades.length;
+}
+
+function addJupRoute(type, amtIn, amtOut, price, txSig) {
+  state.jupRoutes.unshift({ type, amtIn, amtOut, price, txSig });
+  const el = document.getElementById("jupRouteLog");
+  if (el.querySelector(".empty-state")) el.innerHTML = "";
+  const jupTx = document.getElementById("jupTxList");
+  if (jupTx.querySelector(".empty-state")) jupTx.innerHTML = "";
+
+  const short = txSig?.slice(0,20) + "...";
+  const explorerUrl = `https://solscan.io/tx/${txSig}`;
+
+  [el, jupTx].forEach(container => {
+    const div = document.createElement("div");
+    div.className = "tx-panel";
+    div.innerHTML = `
+      <div class="tx-item"><span>${type}</span><span>${amtIn} → ${amtOut}</span></div>
+      <div class="tx-item"><span>Price</span><span>$${price.toFixed(2)}</span></div>
+      <div class="tx-item"><span>Sig</span><span><a href="${explorerUrl}" target="_blank" class="tx-hash">${short}</a></span></div>
+      <div style="border-bottom:1px solid var(--border);margin:4px 0"></div>
+    `;
+    container.insertBefore(div, container.firstChild);
+  });
+}
+
+function updatePositionCard(price) {
+  if (!state.openPosition) return;
+  const pos = state.openPosition;
+  const pct = ((price - pos.entryPrice) / pos.entryPrice) * 100;
+  document.getElementById("posEntry").textContent = `$${pos.entryPrice.toFixed(2)}`;
+  document.getElementById("posSize").textContent  = pos.size.toFixed(4);
+  document.getElementById("posCost").textContent  = pos.cost.toFixed(2);
+  const unreal = document.getElementById("posUnreal");
+  unreal.textContent = `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
+  unreal.style.color = pct >= 0 ? "var(--green)" : "var(--red)";
+  document.getElementById("posTpSl").textContent = `SL: -${state.settings.stopLoss}% · TP: +${state.settings.takeProfit}%`;
+}
+
+function updateWinRate() {
+  const sells = state.trades.filter(t => t.type === "SELL" && t.pnl !== null);
+  if (!sells.length) return;
+  const wins = sells.filter(t => t.pnl >= 0).length;
+  document.getElementById("winRate").textContent = `${((wins/sells.length)*100).toFixed(0)}% win rate`;
+}
+
+function showAlert(type, msg) {
+  const zone = document.getElementById("alertZone");
+  const div = document.createElement("div");
+  div.className = `alert alert-${type}`;
+  div.textContent = msg;
+  zone.appendChild(div);
+  setTimeout(() => div.remove(), 5000);
+}
+
+function logDebug(msg) {
+  state.debugLines.unshift(`[${new Date().toLocaleTimeString()}] ${msg}`);
+  if (state.debugLines.length > 50) state.debugLines.pop();
+  const el = document.getElementById("debugLog");
+  el.innerHTML = state.debugLines.join("<br>");
+}
+
+function flashMetric(id) {
+  const el = document.getElementById(id);
+  el.classList.add("updated");
+  setTimeout(() => el.classList.remove("updated"), 800);
+}
+
+function truncateAddr(addr) {
+  return addr.slice(0,4) + "..." + addr.slice(-4);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BOT TOGGLE
+// ═══════════════════════════════════════════════════════════════
+function toggleBot() {
+  if (!state.connected) { showAlert("error", "Connect wallet first"); return; }
+  state.botActive = !state.botActive;
+
+  const btn = document.getElementById("botToggle");
+  const dot = document.getElementById("statusDot");
+  const statusText = document.getElementById("statusText");
+
+  if (state.botActive) {
+    if (!state.sessionStart) {
+      state.sessionStart = Date.now();
+    }
+    btn.className = "bot-toggle stop";
+    btn.textContent = "⬛ STOP BOT";
+    dot.className = "status-dot status-live";
+    statusText.textContent = `LIVE · Scanning ${state.selectedPair} · Jupiter DEX`;
+    logDebug("[BOT] Autonomous trading started. Monitoring signals...");
+    showAlert("success", "✓ Bot activated — trading autonomously on Jupiter DEX");
+  } else {
+    btn.className = "bot-toggle start";
+    btn.textContent = "▶ START BOT";
+    dot.className = "status-dot status-idle";
+    statusText.textContent = "PAUSED · Bot stopped";
+    logDebug("[BOT] Stopped by user.");
+    showAlert("warn", "Bot paused. Open positions will still monitor for exit conditions.");
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// UI CONTROLS
+// ═══════════════════════════════════════════════════════════════
+function selectPair(pair, el) {
+  state.selectedPair = pair;
+  document.querySelectorAll(".pair-tab").forEach(t => t.classList.remove("active"));
+  el.classList.add("active");
+  state.candles = [];
+  logDebug(`[PAIR] Switched to ${pair}`);
+}
+
+function updateSetting(key, val, displayId) {
+  state.settings[key] = parseFloat(val);
+  document.getElementById(displayId).textContent = val;
+  logDebug(`[SETTINGS] ${key} = ${val}`);
+}
+
+function switchTab(tab, el) {
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  el.classList.add("active");
+  ["trades","jupiter","debug"].forEach(t => {
+    document.getElementById(`tab-${t}`).style.display = t === tab ? "" : "none";
+  });
+}
+</script>
+</body>
+</html>
