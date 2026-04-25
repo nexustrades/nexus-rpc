@@ -81,5 +81,3 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(8080, () => console.log("[NEXUS] RPC + Price proxy running on :8080"));
-
-
