@@ -1,4 +1,6 @@
-app = "nexus-backend"
+# Fly.io configuration for NEXUS backend.
+
+app = "nexus-rpc"
 primary_region = "iad"
 
 [build]
